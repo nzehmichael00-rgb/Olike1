@@ -145,6 +145,12 @@ const PLATFORM_ACTIONS: Record<string, { value: string; label: string }[]> = {
   ],
   Website: [
     { value: 'View Website', label: 'View Website' }
+  ],
+  Facebook: [
+    { value: 'Follow', label: 'Follow / Like Page' },
+    { value: 'Like', label: 'Post Likes / Reactions' },
+    { value: 'Comment', label: 'Custom Creative Review' },
+    { value: 'Post', label: 'Share / Post on Timeline' }
   ]
 };
 
@@ -664,7 +670,7 @@ export default function App() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Advertise Form state
-  const [advPlatform, setAdvPlatform] = useState<'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website'>('Instagram');
+  const [advPlatform, setAdvPlatform] = useState<'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website' | 'Facebook'>('Instagram');
   const [advType, setAdvType] = useState<'Follow' | 'Like' | 'Retweet' | 'Post' | 'Subscribe' | 'Comment' | 'View Website'>('Follow');
   const [advDescription, setAdvDescription] = useState('');
   const [advUrl, setAdvUrl] = useState('');
@@ -697,7 +703,7 @@ export default function App() {
   const [savingAccountLoading, setSavingAccountLoading] = useState<boolean>(false);
 
   // Admin Create Task Form State
-  const [adminPlatform, setAdminPlatform] = useState<'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website'>('Instagram');
+  const [adminPlatform, setAdminPlatform] = useState<'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website' | 'Facebook'>('Instagram');
   const [adminType, setAdminType] = useState<'Follow' | 'Like' | 'Retweet' | 'Post' | 'Subscribe' | 'Comment' | 'View Website'>('Follow');
   const [adminDescription, setAdminDescription] = useState('');
   const [adminPayout, setAdminPayout] = useState<number>(10);
@@ -792,6 +798,51 @@ export default function App() {
       setTimeout(() => setCopiedId(null), 2000);
       showToast("Referral URL copied (fallback)!");
     }
+  };
+
+  const handleScreenshotUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            try {
+              const compressed = canvas.toDataURL('image/jpeg', 0.7);
+              setTaskProofScreenshot(compressed);
+            } catch (e) {
+              setTaskProofScreenshot(event.target.result as string);
+            }
+          } else {
+            setTaskProofScreenshot(event.target.result as string);
+          }
+        };
+        img.src = event.target.result as string;
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Submit task Proof sequence with Cloud Firestore integration
@@ -966,7 +1017,7 @@ export default function App() {
         url: advUrl.startsWith('http') ? advUrl : `https://${advUrl}`,
         status: 'available',
         slotsLeft: advSlots,
-        platformIcon: advPlatform === 'Instagram' ? '📸' : advPlatform === 'Twitter' ? '🐦' : advPlatform === 'TikTok' ? '🎵' : advPlatform === 'YouTube' ? '▶️' : advPlatform === 'Website' ? '🌐' : '💬'
+        platformIcon: advPlatform === 'Instagram' ? '📸' : advPlatform === 'Twitter' ? '🐦' : advPlatform === 'TikTok' ? '🎵' : advPlatform === 'YouTube' ? '▶️' : advPlatform === 'Facebook' ? '👥' : advPlatform === 'Website' ? '🌐' : '💬'
       };
       await setDoc(doc(db, "tasks", taskId), newTask);
 
@@ -1533,7 +1584,8 @@ export default function App() {
         TikTok: '🎵',
         YouTube: '▶️',
         WhatsApp: '💬',
-        Website: '🌐'
+        Website: '🌐',
+        Facebook: '👥'
       };
       
       const newTaskObj = {
@@ -2946,6 +2998,7 @@ export default function App() {
                           <option value="YouTube">YouTube</option>
                           <option value="WhatsApp">WhatsApp</option>
                           <option value="Website">Website</option>
+                          <option value="Facebook">Facebook</option>
                         </select>
                       </div>
 
@@ -4215,6 +4268,7 @@ export default function App() {
                             <option value="YouTube">▶️ YouTube</option>
                             <option value="WhatsApp">💬 WhatsApp</option>
                             <option value="Website">🌐 Website</option>
+                            <option value="Facebook">👥 Facebook</option>
                           </select>
                         </div>
 
@@ -4791,14 +4845,7 @@ export default function App() {
                       e.stopPropagation();
                       setDragActive(false);
                       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        const file = e.dataTransfer.files[0];
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                          if (event.target?.result) {
-                            setTaskProofScreenshot(event.target.result as string);
-                          }
-                        };
-                        reader.readAsDataURL(file);
+                        handleScreenshotUpload(e.dataTransfer.files[0]);
                       }
                     }}
                     onClick={() => {
@@ -4817,14 +4864,7 @@ export default function App() {
                       className="hidden"
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
-                          const file = e.target.files[0];
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            if (event.target?.result) {
-                              setTaskProofScreenshot(event.target.result as string);
-                            }
-                          };
-                          reader.readAsDataURL(file);
+                          handleScreenshotUpload(e.target.files[0]);
                         }
                       }}
                     />

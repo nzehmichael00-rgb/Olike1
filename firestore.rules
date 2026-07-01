@@ -182,7 +182,7 @@ service cloud.firestore {
              data.userName is string && data.userName.size() <= 100 &&
              data.userEmail is string && data.userEmail.size() <= 100 &&
              data.handle is string && data.handle.size() <= 100 &&
-             data.screenshot is string && data.screenshot.size() <= 2000 &&
+             data.screenshot is string && data.screenshot.size() <= 300000 &&
              data.status is string && data.status.size() <= 20 &&
              data.createdAt is string && data.createdAt.size() <= 50;
     }

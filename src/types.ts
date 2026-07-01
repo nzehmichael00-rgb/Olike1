@@ -1,6 +1,6 @@
 export interface SocialTask {
   id: string;
-  platform: 'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website';
+  platform: 'Instagram' | 'Twitter' | 'TikTok' | 'YouTube' | 'WhatsApp' | 'Website' | 'Facebook';
   type: 'Follow' | 'Like' | 'Retweet' | 'Post' | 'Subscribe' | 'Comment' | 'View Website';
   description: string;
   payout: number;
