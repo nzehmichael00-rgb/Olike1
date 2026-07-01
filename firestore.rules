@@ -1,0 +1,196 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Determine if the current authenticated user is an administrator
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'nzehmichael00@gmail.com' ||
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('isAdmin', false) == true)
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- referral_codes Collection ---
+    match /referral_codes/{code} {
+      allow get: if true;
+      allow list: if isSignedIn() && isAdmin();
+      allow create, update: if isSignedIn() && (incoming().userId == request.auth.uid || isAdmin()) && isValidReferralCode(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // --- profiles Collection ---
+    match /profiles/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        (resource != null && 
+         resource.data.get('referredBy', null) != null && 
+         resource.data.referredBy.get('id', '') == request.auth.uid)
+      );
+      
+      allow create: if isSignedIn() && request.auth.uid == userId && 
+                       isValidProfile(incoming()) && 
+                       (request.auth.token.email == 'nzehmichael00@gmail.com' || !incoming().keys().hasAny(['isAdmin']) || incoming().get('isAdmin', false) == false);
+                       
+      allow update: if isSignedIn() && (
+                       isAdmin() || 
+                       (request.auth.uid == userId && isValidProfile(incoming()) && 
+                        (!existing().keys().hasAny(['isAdmin']) && !incoming().keys().hasAny(['isAdmin']) || 
+                         existing().get('isAdmin', false) == incoming().get('isAdmin', false))) ||
+                       // Allow another signed-in user to credit this user exactly 250.0 for a referral
+                       (incoming().balance == existing().balance + 250.0 && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['balance']))
+                     );
+                     
+      allow delete: if isAdmin();
+
+      // --- subcollection saved_accounts ---
+      match /saved_accounts/{accountId} {
+        allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
+
+      // --- subcollection notifications ---
+      match /notifications/{notifId} {
+        allow read, update, delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create: if isSignedIn();
+      }
+    }
+
+    // Validation helper for Profile
+    function isValidProfile(data) {
+      return data.name is string && data.name.size() <= 100 &&
+             data.balance is number &&
+             data.isPremium is bool &&
+             data.email is string && data.email.size() <= 100 &&
+             (!data.keys().hasAny(['isAdmin']) || data.isAdmin is bool) &&
+             (!data.keys().hasAny(['paidOnetimeFee']) || data.paidOnetimeFee is bool);
+    }
+
+    // Validation helper for ReferralCode
+    function isValidReferralCode(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() <= 100;
+    }
+
+    // --- leaderboards Collection ---
+    match /leaderboards/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- tasks Collection ---
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isAdmin() || isValidTask(incoming()));
+      allow update, delete: if isAdmin();
+    }
+
+    // Validation helper for SocialTask
+    function isValidTask(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.platform is string && data.platform.size() <= 50 &&
+             data.type is string && data.type.size() <= 50 &&
+             data.description is string && data.description.size() <= 1000 &&
+             data.payout is number &&
+             data.url is string && data.url.size() <= 2000 &&
+             data.status is string && data.status.size() <= 20 &&
+             data.slotsLeft is number &&
+             data.platformIcon is string && data.platformIcon.size() <= 20;
+    }
+
+    // --- marketplace Collection ---
+    match /marketplace/{itemId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidMarketplaceItem(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    // Validation helper for MarketplaceItem
+    function isValidMarketplaceItem(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.title is string && data.title.size() <= 100 &&
+             data.price is number &&
+             data.category is string && data.category.size() <= 100 &&
+             data.image is string && data.image.size() <= 2000 &&
+             data.contact is string && data.contact.size() <= 100 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.seller is string && data.seller.size() <= 100;
+    }
+
+    // --- transactions Collection ---
+    match /transactions/{txId} {
+      allow read: if isSignedIn() && (
+        !resource.data.keys().hasAny(['userId']) || 
+        resource.data.userId == request.auth.uid || 
+        isAdmin()
+      );
+      allow create: if isSignedIn() && isValidWalletTransaction(incoming()) && (
+        !incoming().keys().hasAny(['userId']) ||
+        incoming().userId == request.auth.uid || 
+        isAdmin() ||
+        (incoming().amount == 250.0 && incoming().type == 'earn')
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // Validation helper for WalletTransaction
+    function isValidWalletTransaction(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.description is string && data.description.size() <= 200 &&
+             data.amount is number &&
+             data.type is string && data.type.size() <= 50 &&
+             data.date is string && data.date.size() <= 50 &&
+             data.status is string && data.status.size() <= 50;
+    }
+
+    // --- submissions Collection ---
+    match /submissions/{submissionId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() && 
+                       isValidSubmission(incoming()) && 
+                       incoming().userId == request.auth.uid && 
+                       incoming().status == 'pending';
+                       
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Validation helper for Submission
+    function isValidSubmission(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.taskId is string && data.taskId.size() <= 100 &&
+             data.taskName is string && data.taskName.size() <= 200 &&
+             data.payout is number &&
+             data.userId is string && data.userId.size() <= 100 &&
+             data.userName is string && data.userName.size() <= 100 &&
+             data.userEmail is string && data.userEmail.size() <= 100 &&
+             data.handle is string && data.handle.size() <= 100 &&
+             data.screenshot is string && data.screenshot.size() <= 2000 &&
+             data.status is string && data.status.size() <= 20 &&
+             data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    // --- config Collection ---
+    match /config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

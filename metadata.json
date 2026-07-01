@@ -1,0 +1,6 @@
+{
+  "name": "Olike",
+  "description": "An elegant developer workspace companion featuring a full-featured Olike platform with active social advertising task pools, product catalogs, transactional financial ledgers, and secure real-time Google Cloud Firestore synchronization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

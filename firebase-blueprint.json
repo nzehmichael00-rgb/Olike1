@@ -1,0 +1,165 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile with balance and premium status",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "balance": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "email": { "type": "string" }
+      },
+      "required": ["name", "balance", "isPremium", "email"]
+    },
+    "SocialTask": {
+      "title": "SocialTask",
+      "description": "A social task campaigns database item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "platform": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "payout": { "type": "number" },
+        "url": { "type": "string" },
+        "status": { "type": "string" },
+        "slotsLeft": { "type": "number" },
+        "platformIcon": { "type": "string" }
+      },
+      "required": ["id", "platform", "type", "description", "payout", "url", "status", "slotsLeft"]
+    },
+    "MarketplaceItem": {
+      "title": "MarketplaceItem",
+      "description": "Product listed in the Olike marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "image": { "type": "string" },
+        "contact": { "type": "string" },
+        "description": { "type": "string" },
+        "seller": { "type": "string" }
+      },
+      "required": ["id", "title", "price", "category", "image", "contact", "description", "seller"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "A credit/debit transaction on user wallet",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "description", "amount", "type", "date", "status"]
+    },
+    "SavedAccount": {
+      "title": "SavedAccount",
+      "description": "A user's saved beneficiary bank account details",
+      "type": "object",
+      "properties": {
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "accountName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["bankName", "accountNumber", "accountName", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A message notification sent to a specific user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "message", "type", "read", "createdAt"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "A campaign task completion proof submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "taskName": { "type": "string" },
+        "payout": { "type": "number" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "handle": { "type": "string" },
+        "screenshot": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "taskId", "taskName", "payout", "userId", "userName", "userEmail", "handle", "screenshot", "status", "createdAt"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Administrative system configuration",
+      "type": "object",
+      "properties": {
+        "grid": { "type": "array" }
+      },
+      "required": ["grid"]
+    },
+    "ReferralCode": {
+      "title": "ReferralCode",
+      "description": "Public referral code lookup mapping",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["userId", "name"]
+    }
+  },
+  "firestore": {
+    "/referral_codes/{code}": {
+      "schema": "ReferralCode",
+      "description": "Public referral code document to safely lookup referral owners"
+    },
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "Main user profiles containing metadata and balances"
+    },
+    "/tasks/{taskId}": {
+      "schema": "SocialTask",
+      "description": "Campaigns created by advertisers or seeded tasks"
+    },
+    "/marketplace/{itemId}": {
+      "schema": "MarketplaceItem",
+      "description": "Item listings in the community marketplace"
+    },
+    "/transactions/{txId}": {
+      "schema": "WalletTransaction",
+      "description": "Audit trail ledger of transactions"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "User submissions of tasks for verification and admin approval"
+    },
+    "/config/{configId}": {
+      "schema": "SystemConfig",
+      "description": "Global administrator configuration such as pricing rate grid"
+    },
+    "/profiles/{userId}/saved_accounts/{accountId}": {
+      "schema": "SavedAccount",
+      "description": "Sub-collection of user saved beneficiary bank accounts"
+    },
+    "/profiles/{userId}/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Sub-collection of private notifications sent to the user"
+    }
+  }
+}
