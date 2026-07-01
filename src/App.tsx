@@ -830,8 +830,8 @@ export default function App() {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
+          const MAX_WIDTH = 600;
+          const MAX_HEIGHT = 600;
           let width = img.width;
           let height = img.height;
 
@@ -853,7 +853,7 @@ export default function App() {
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
             try {
-              const compressed = canvas.toDataURL('image/jpeg', 0.7);
+              const compressed = canvas.toDataURL('image/jpeg', 0.5);
               setTaskProofScreenshot(compressed);
             } catch (e) {
               setTaskProofScreenshot(event.target.result as string);
@@ -905,6 +905,16 @@ export default function App() {
           createdAt: new Date().toISOString()
         };
         await setDoc(doc(db, "submissions", submissionId), submissionObj);
+
+        // Immediately decrement task slots left in database
+        const taskRef = doc(db, "tasks", selectedTask.id);
+        const taskSnap = await getDoc(taskRef);
+        if (taskSnap.exists()) {
+          const tData = taskSnap.data();
+          await setDoc(taskRef, {
+            slotsLeft: Math.max(0, (tData.slotsLeft ?? 1) - 1)
+          }, { merge: true });
+        }
 
         setSubmittingProof(false);
         setSelectedTask(null);
@@ -1405,28 +1415,7 @@ export default function App() {
         return;
       }
 
-      // 4. Update task remaining slots if found
-      const taskRef = doc(db, "tasks", sub.taskId);
-      let taskSnap;
-      try {
-        taskSnap = await getDoc(taskRef);
-      } catch (err) {
-        handleFirestoreError(err, OperationType.GET, `tasks/${sub.taskId}`);
-        return;
-      }
-      if (taskSnap.exists()) {
-        const tData = taskSnap.data();
-        try {
-          await setDoc(taskRef, {
-            slotsLeft: Math.max(0, (tData.slotsLeft ?? 1) - 1)
-          }, { merge: true });
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `tasks/${sub.taskId}`);
-          return;
-        }
-      }
-
-      // 5. Update submission status to approved in real-time
+      // 4. Update submission status to approved in real-time
       try {
         await setDoc(doc(db, "submissions", sub.id), {
           status: 'approved'
@@ -1461,7 +1450,7 @@ export default function App() {
         status: 'rejected'
       }, { merge: true });
 
-      // Fetch submission details to notify the earner
+      // Fetch submission details to notify the earner & refund slotsLeft
       const subSnap = await getDoc(doc(db, "submissions", subId));
       if (subSnap.exists()) {
         const subData = subSnap.data();
@@ -1471,6 +1460,18 @@ export default function App() {
           `Your proof submission for "${subData.taskName || 'Campaign Task'}" was rejected by the Admin. Please review instruction guidelines.`,
           "verification_fail"
         );
+
+        // Refund task slot left
+        if (subData.taskId) {
+          const taskRef = doc(db, "tasks", subData.taskId);
+          const taskSnap = await getDoc(taskRef);
+          if (taskSnap.exists()) {
+            const tData = taskSnap.data();
+            await setDoc(taskRef, {
+              slotsLeft: (tData.slotsLeft ?? 0) + 1
+            }, { merge: true });
+          }
+        }
       }
 
       showToast("Proof submission was successfully marked as Rejected.");
@@ -2913,97 +2914,115 @@ export default function App() {
                 </div>
 
                 {/* Filter and task container */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
-                  {tasks.map((task) => {
-                    const dynamicPayout = isPremium ? task.payout * 2 : task.payout;
-                    const userSubmission = submissions.find(s => s.taskId === task.id && s.userId === currentUser?.uid);
-                    const isPending = userSubmission && userSubmission.status === 'pending';
-                    const isApproved = userSubmission && userSubmission.status === 'approved';
-                    const isRejected = userSubmission && userSubmission.status === 'rejected';
-                    const isFull = task.slotsLeft <= 0;
-                    
-                    let statusLabel = 'Available';
-                    let statusClass = 'bg-emerald-50 border-emerald-100 text-emerald-600';
-                    if (userSubmission) {
-                      if (isPending) {
-                        statusLabel = 'Pending Review';
-                        statusClass = 'bg-amber-50 border-amber-200 text-amber-700';
-                      } else if (isApproved) {
-                        statusLabel = 'Verified';
-                        statusClass = 'bg-green-100 border-green-200 text-green-700';
-                      } else if (isRejected) {
-                        statusLabel = 'Rejected (Retry)';
-                        statusClass = 'bg-red-50 border-red-200 text-red-600';
-                      }
-                    } else if (isFull) {
-                      statusLabel = 'Campaign Full';
-                      statusClass = 'bg-slate-100 border-slate-200 text-slate-500';
-                    }
+                {tasks.filter(task => {
+                  const userSubmission = submissions.find(s => s.taskId === task.id && s.userId === currentUser?.uid);
+                  const isCompleted = userSubmission && (userSubmission.status === 'pending' || userSubmission.status === 'approved');
+                  return !isCompleted;
+                }).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <span className="text-4xl">🎉</span>
+                    <h3 className="text-sm font-black text-slate-700 mt-3 uppercase tracking-wider">All Done for Today!</h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-md font-medium">You have completed all available social tasks in this cluster. Please check back later for new campaigns from advertisers!</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+                    {tasks
+                      .filter(task => {
+                        const userSubmission = submissions.find(s => s.taskId === task.id && s.userId === currentUser?.uid);
+                        const isCompleted = userSubmission && (userSubmission.status === 'pending' || userSubmission.status === 'approved');
+                        return !isCompleted;
+                      })
+                      .map((task) => {
+                        const dynamicPayout = isPremium ? task.payout * 2 : task.payout;
+                        const userSubmission = submissions.find(s => s.taskId === task.id && s.userId === currentUser?.uid);
+                        const isPending = userSubmission && userSubmission.status === 'pending';
+                        const isApproved = userSubmission && userSubmission.status === 'approved';
+                        const isRejected = userSubmission && userSubmission.status === 'rejected';
+                        const isFull = task.slotsLeft <= 0;
+                        
+                        let statusLabel = 'Available';
+                        let statusClass = 'bg-emerald-50 border-emerald-100 text-emerald-600';
+                        if (userSubmission) {
+                          if (isPending) {
+                            statusLabel = 'Pending Review';
+                            statusClass = 'bg-amber-50 border-amber-200 text-amber-700';
+                          } else if (isApproved) {
+                            statusLabel = 'Verified';
+                            statusClass = 'bg-green-100 border-green-200 text-green-700';
+                          } else if (isRejected) {
+                            statusLabel = 'Rejected (Retry)';
+                            statusClass = 'bg-red-50 border-red-200 text-red-600';
+                          }
+                        } else if (isFull) {
+                          statusLabel = 'Campaign Full';
+                          statusClass = 'bg-slate-100 border-slate-200 text-slate-500';
+                        }
 
-                    return (
-                      <div 
-                        key={task.id}
-                        className={`bg-white border hover:border-indigo-400 rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${(isApproved || isPending) ? 'opacity-70 scale-[0.98]' : ''}`}
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl bg-slate-100 rounded-xl p-2.5 shrink-0 shadow-sm">{task.platformIcon}</span>
-                              <div>
-                                <h3 className="font-extrabold text-xs text-slate-800 uppercase tracking-wide">{task.platform}</h3>
-                                <p className="text-[10px] text-slate-400 font-semibold font-mono">{task.type} Campaign</p>
+                        return (
+                          <div 
+                            key={task.id}
+                            className={`bg-white border hover:border-indigo-400 rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${(isApproved || isPending) ? 'opacity-70 scale-[0.98]' : ''}`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-3.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-2xl bg-slate-100 rounded-xl p-2.5 shrink-0 shadow-sm">{task.platformIcon}</span>
+                                  <div>
+                                    <h3 className="font-extrabold text-xs text-slate-800 uppercase tracking-wide">{task.platform}</h3>
+                                    <p className="text-[10px] text-slate-400 font-semibold font-mono">{task.type} Campaign</p>
+                                  </div>
+                                </div>
+                                
+                                <span className={`text-[9px] font-black uppercase py-0.5 px-2 rounded-full border ${statusClass}`}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+
+                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Instruction Target</span>
+                              <p className="text-xs font-bold text-slate-700 leading-normal mt-1 mb-4 h-12 overflow-hidden line-clamp-2">
+                                {task.description}
+                              </p>
+                              
+                              <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 mb-4">
+                                <div>
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Payout Rate</span>
+                                  <span className="text-sm font-black text-green-600 font-mono">₦{dynamicPayout.toFixed(2)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Slots Left</span>
+                                  <span className="text-sm font-black text-slate-700 font-mono">{task.slotsLeft} users</span>
+                                </div>
                               </div>
                             </div>
-                            
-                            <span className={`text-[9px] font-black uppercase py-0.5 px-2 rounded-full border ${statusClass}`}>
-                              {statusLabel}
-                            </span>
-                          </div>
 
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Instruction Target</span>
-                          <p className="text-xs font-bold text-slate-700 leading-normal mt-1 mb-4 h-12 overflow-hidden line-clamp-2">
-                            {task.description}
-                          </p>
-                          
-                          <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 mb-4">
-                            <div>
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Payout Rate</span>
-                              <span className="text-sm font-black text-green-600 font-mono">₦{dynamicPayout.toFixed(2)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Slots Left</span>
-                              <span className="text-sm font-black text-slate-700 font-mono">{task.slotsLeft} users</span>
-                            </div>
+                            {isPending ? (
+                              <div className="w-full text-center py-2 bg-amber-50 border border-amber-200 text-amber-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                                <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
+                                <span>Verification Pending</span>
+                              </div>
+                            ) : isApproved ? (
+                              <div className="w-full text-center py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                                <span>Campaign Completed</span>
+                              </div>
+                            ) : isFull && !isRejected ? (
+                              <div className="w-full text-center py-2 bg-slate-100 border border-slate-200 text-slate-500 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                                <ShieldAlert className="h-4 w-4 text-slate-400" />
+                                <span>Campaign Filled</span>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setSelectedTask(task)}
+                                className="w-full text-center py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl tracking-wider uppercase transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
+                              >
+                                {isRejected ? 'Resubmit Proof' : 'Execute Task'}
+                              </button>
+                            )}
                           </div>
-                        </div>
-
-                        {isPending ? (
-                          <div className="w-full text-center py-2 bg-amber-50 border border-amber-200 text-amber-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
-                            <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
-                            <span>Verification Pending</span>
-                          </div>
-                        ) : isApproved ? (
-                          <div className="w-full text-center py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
-                            <CheckCircle className="h-4 w-4 text-emerald-600" />
-                            <span>Campaign Completed</span>
-                          </div>
-                        ) : isFull && !isRejected ? (
-                          <div className="w-full text-center py-2 bg-slate-100 border border-slate-200 text-slate-500 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
-                            <ShieldAlert className="h-4 w-4 text-slate-400" />
-                            <span>Campaign Filled</span>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => setSelectedTask(task)}
-                            className="w-full text-center py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl tracking-wider uppercase transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
-                          >
-                            {isRejected ? 'Resubmit Proof' : 'Execute Task'}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
             </div>
           )}
