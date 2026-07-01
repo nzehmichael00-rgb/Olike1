@@ -23,6 +23,7 @@ import {
   Play, 
   HelpCircle, 
   CheckCircle,
+  Clock,
   ExternalLink,
   Info,
   LogOut,
@@ -606,17 +607,15 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [currentUser, profileName, referees]);
 
-  // Admin-only real-time database subscriptions
+  // Admin-only real-time database subscriptions (profiles, transactions)
   useEffect(() => {
     if (!currentUser || !isUserAdmin) {
       setAllProfiles([]);
-      setSubmissions([]);
       setAllTransactions([]);
       return;
     }
 
     let unsubAllProfiles: () => void;
-    let unsubSubmissions: () => void;
     let unsubAllTransactions: () => void;
 
     try {
@@ -628,16 +627,6 @@ export default function App() {
         setAllProfiles(list);
       }, (error) => {
         console.error("Admin profiles listener error:", error);
-      });
-
-      unsubSubmissions = onSnapshot(collection(db, "submissions"), (snap) => {
-        const list: any[] = [];
-        snap.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() });
-        });
-        setSubmissions(list.sort((a, b) => (b.createdAt || b.id).localeCompare(a.createdAt || a.id)));
-      }, (error) => {
-        console.error("Admin submissions listener error:", error);
       });
 
       unsubAllTransactions = onSnapshot(collection(db, "transactions"), (snap) => {
@@ -655,8 +644,39 @@ export default function App() {
 
     return () => {
       if (unsubAllProfiles) unsubAllProfiles();
-      if (unsubSubmissions) unsubSubmissions();
       if (unsubAllTransactions) unsubAllTransactions();
+    };
+  }, [currentUser, isUserAdmin]);
+
+  // Real-time database subscriptions for submissions (Admin sees all, user sees their own)
+  useEffect(() => {
+    if (!currentUser) {
+      setSubmissions([]);
+      return;
+    }
+
+    let unsubSubmissions: () => void;
+
+    try {
+      const q = isUserAdmin 
+        ? collection(db, "submissions") 
+        : query(collection(db, "submissions"), where("userId", "==", currentUser.uid));
+
+      unsubSubmissions = onSnapshot(q, (snap) => {
+        const list: any[] = [];
+        snap.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setSubmissions(list.sort((a, b) => (b.createdAt || b.id).localeCompare(a.createdAt || a.id)));
+      }, (error) => {
+        console.error("Submissions listener error:", error);
+      });
+    } catch (err) {
+      console.error("Submissions subscription error:", err);
+    }
+
+    return () => {
+      if (unsubSubmissions) unsubSubmissions();
     };
   }, [currentUser, isUserAdmin]);
 
@@ -718,7 +738,10 @@ export default function App() {
   const [adminViewMode, setAdminViewMode] = useState<'list' | 'gallery'>('gallery');
 
   // Helper values
-  const totalCompleted = tasks.filter(t => t.status === 'approved' || t.status === 'submitted').length;
+  const totalCompleted = submissions.filter(s => s.status === 'approved' && s.userId === currentUser?.uid).length;
+  const pendingEarnAmount = submissions
+    .filter(s => s.status === 'pending' && s.userId === currentUser?.uid)
+    .reduce((acc, s) => acc + (s.payout ?? 0), 0);
   const [isUpgradingModal, setIsUpgradingModal] = useState(false);
 
   // Toast / Status auto-fade
@@ -2673,8 +2696,8 @@ export default function App() {
                 </div>
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2 sm:p-3 text-center min-w-0">
                   <span className="text-[8px] sm:text-[9px] text-slate-400 font-black uppercase tracking-wider block truncate">Pending</span>
-                  <span className="text-[10px] xs:text-xs sm:text-sm font-extrabold text-slate-700 block mt-1 font-mono truncate">
-                    ₦0.00
+                  <span className="text-[10px] xs:text-xs sm:text-sm font-extrabold text-slate-700 block mt-1 font-mono truncate" title={`₦${pendingEarnAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}>
+                    ₦{pendingEarnAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2 sm:p-3 text-center min-w-0">
@@ -2893,10 +2916,34 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
                   {tasks.map((task) => {
                     const dynamicPayout = isPremium ? task.payout * 2 : task.payout;
+                    const userSubmission = submissions.find(s => s.taskId === task.id && s.userId === currentUser?.uid);
+                    const isPending = userSubmission && userSubmission.status === 'pending';
+                    const isApproved = userSubmission && userSubmission.status === 'approved';
+                    const isRejected = userSubmission && userSubmission.status === 'rejected';
+                    const isFull = task.slotsLeft <= 0;
+                    
+                    let statusLabel = 'Available';
+                    let statusClass = 'bg-emerald-50 border-emerald-100 text-emerald-600';
+                    if (userSubmission) {
+                      if (isPending) {
+                        statusLabel = 'Pending Review';
+                        statusClass = 'bg-amber-50 border-amber-200 text-amber-700';
+                      } else if (isApproved) {
+                        statusLabel = 'Verified';
+                        statusClass = 'bg-green-100 border-green-200 text-green-700';
+                      } else if (isRejected) {
+                        statusLabel = 'Rejected (Retry)';
+                        statusClass = 'bg-red-50 border-red-200 text-red-600';
+                      }
+                    } else if (isFull) {
+                      statusLabel = 'Campaign Full';
+                      statusClass = 'bg-slate-100 border-slate-200 text-slate-500';
+                    }
+
                     return (
                       <div 
                         key={task.id}
-                        className={`bg-white border hover:border-indigo-400 rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${task.status !== 'available' ? 'opacity-55 scale-[0.98]' : ''}`}
+                        className={`bg-white border hover:border-indigo-400 rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${(isApproved || isPending) ? 'opacity-70 scale-[0.98]' : ''}`}
                       >
                         <div>
                           <div className="flex items-center justify-between mb-3.5">
@@ -2908,12 +2955,8 @@ export default function App() {
                               </div>
                             </div>
                             
-                            <span className={`text-[9px] font-black uppercase py-0.5 px-2 rounded-full border ${
-                              task.status === 'available' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
-                              task.status === 'approved' ? 'bg-green-100 border-green-200 text-green-700' :
-                              'bg-indigo-50 border-indigo-100 text-indigo-600'
-                            }`}>
-                              {task.status === 'available' ? 'Available' : task.status === 'approved' ? 'Verified' : 'Submitted'}
+                            <span className={`text-[9px] font-black uppercase py-0.5 px-2 rounded-full border ${statusClass}`}>
+                              {statusLabel}
                             </span>
                           </div>
 
@@ -2934,18 +2977,28 @@ export default function App() {
                           </div>
                         </div>
 
-                        {task.status === 'available' ? (
+                        {isPending ? (
+                          <div className="w-full text-center py-2 bg-amber-50 border border-amber-200 text-amber-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                            <Clock className="h-4 w-4 text-amber-500 animate-pulse" />
+                            <span>Verification Pending</span>
+                          </div>
+                        ) : isApproved ? (
+                          <div className="w-full text-center py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                            <CheckCircle className="h-4 w-4 text-emerald-600" />
+                            <span>Campaign Completed</span>
+                          </div>
+                        ) : isFull && !isRejected ? (
+                          <div className="w-full text-center py-2 bg-slate-100 border border-slate-200 text-slate-500 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
+                            <ShieldAlert className="h-4 w-4 text-slate-400" />
+                            <span>Campaign Filled</span>
+                          </div>
+                        ) : (
                           <button 
                             onClick={() => setSelectedTask(task)}
                             className="w-full text-center py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl tracking-wider uppercase transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
                           >
-                            Execute Task
+                            {isRejected ? 'Resubmit Proof' : 'Execute Task'}
                           </button>
-                        ) : (
-                          <div className="w-full text-center py-2 bg-slate-100 border border-slate-200 text-slate-500 font-extrabold text-xs rounded-xl px-1.5 flex items-center justify-center gap-1">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                            <span>Campaign Completed</span>
-                          </div>
                         )}
                       </div>
                     );
